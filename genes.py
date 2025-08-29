@@ -566,10 +566,12 @@ class GeneAnnotation:
         self._df_query = None
         self._prom_header = f"Relative To Gene (prom=-{promoter_lim[0]/1000}/+{promoter_lim[1]/1000} kb)"
 
-    def annotate_closest_genes(
-        self,
-    ):
-        print(f"Finding the {self._closest_n} closest annotations...")
+    def annotate_closest_genes(self, closest_n: int = -1):
+        # use default if not specified
+        if closest_n == -1:
+            closest_n = self._closest_n
+
+        print(f"Finding the {closest_n} closest annotations...")
         # keep track of how many closest are assigned at a location
         used_symbols = collections.defaultdict(dict)
         closest_annotation_map = collections.defaultdict(
@@ -590,7 +592,7 @@ class GeneAnnotation:
             gene_symbol = d["gene_symbol"]
 
             if gene_symbol not in used_symbols[location]:
-                if len(used_symbols[location]) < self._closest_n:
+                if len(used_symbols[location]) < closest_n:
                     used_symbols[location][gene_symbol] = (
                         len(used_symbols[location]) + 1
                     )
@@ -687,19 +689,19 @@ class GeneAnnotation:
         #     self._df_query[f"#{i} TSS Distance"] = ""
         #     self._df_query[f"#{i} {prom_header}"] = ""
 
-        closest_cols = [[[] for _ in range(6)] for _ in range(self._closest_n)]
+        closest_cols = [[[] for _ in range(6)] for _ in range(closest_n)]
 
         for _, row in self._df_query.iterrows():
             key = row.name  # (row["Chromosome"], row["Start"], row["End"])
 
-            for i in range(1, self._closest_n + 1):
+            for i in range(1, closest_n + 1):
                 annotations = [
                     json.loads(x)
                     for x in sorted(closest_annotation_map[i].get(key, set()))
                 ]
                 add_annotation_for_location_to_cols(annotations, closest_cols[i - 1])
 
-        for i in range(1, self._closest_n + 1):
+        for i in range(1, closest_n + 1):
             self._df_query[f"#{i} Transcript Id"] = closest_cols[i - 1][0]
             self._df_query[f"#{i} Gene Id"] = closest_cols[i - 1][1]
             self._df_query[f"#{i} Gene Symbol"] = closest_cols[i - 1][2]
