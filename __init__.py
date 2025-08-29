@@ -1,1 +1,2 @@
-from .genes import GeneAnnotation
+from .genes import GeneAnnotation, PROMOTER_LIM
+from .blacklist import BlacklistAnnotation

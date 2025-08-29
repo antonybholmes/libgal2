@@ -6,7 +6,7 @@ import pandas as pd
 import pyranges as pr
 
 import sqlite3
-import argparse
+
 
 SEP = " | "
 NA = "n/a"
