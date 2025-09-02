@@ -1,26 +1,34 @@
 import collections
-import json
 import pandas as pd
 
 import sqlite3
 
-from . import genomic, utils
+
 from .genes import SEP
+from .genomic import NA
+from . import utils, genomic
 
+# BLACKLIST_QUERY = f"""
+# SELECT DISTINCT
+#     chr, start, end, notes
+# FROM regions
+# WHERE
+#     chr = :chromosome AND
+#     :start <= end AND :end >= start
+# ORDER BY chr, start;
+# """
 
-TAD_QUERY = f"""
+REGION_QUERY = f"""
 SELECT DISTINCT
     q.location,
     q.chr,
-    t.start,
-    t.end,
-    t.gene_ids, 
-    t.gene_names
+    r.start,
+    r.end
 FROM query_regions q
-JOIN tads t ON 
-    t.chr = q.chr AND
-    t.start <= q.end AND 
-    t.end >= q.start
+JOIN regions r ON 
+    r.chr = q.chr AND
+    r.start <= q.end AND 
+    r.end >= q.start
 ORDER BY q.location;
 """
 
@@ -35,8 +43,8 @@ TEMP_QUERY_TABLE_SQL = f"""
 """
 
 INSERT_TEMP_QUERY = f"""
-    INSERT INTO query_regions (location, chr, start, end, strand)
-    VALUES (:location, :chr, :start, :end, :strand)
+    INSERT INTO query_regions (location, chr, start, end)
+    VALUES (:location, :chr, :start, :end)
 """
 
 TEMP_INDEX_QUERY_TABLE_REGION_SQL = (
@@ -53,22 +61,18 @@ def row_to_dict(row):
     chr = row[1]
     start = row[2]
     end = row[3]
-    gene_ids = row[4]
-    gene_names = row[5]
 
     annotation = {
         "location": location,
         "chr": chr,
         "start": start,
         "end": end,
-        "gene_ids": gene_ids,
-        "gene_names": gene_names,
     }
 
     return annotation
 
 
-class TADAnnotation:
+class RegionAnnotation:
     def __init__(self):
         self._tad_db_file = None
         self._conn = None
@@ -99,8 +103,8 @@ class TADAnnotation:
         if self._conn:
             self._conn.close()
 
-    def annotate_df(self, df_query: pd.DataFrame):
-        print("Adding TAD annotations to dataframe")
+    def annotate_df(self, df_query: pd.DataFrame, header: str = "Regions"):
+        print(f"Adding {header} annotations to dataframe...")
         locs = []
 
         chr_col = utils.find_chr_col(df_query)
@@ -118,30 +122,13 @@ class TADAnnotation:
 
         annotations = self.annotate(locs)
 
-        df_query["TAD domains"] = [
-            (
-                SEP.join([str(l["location"]) for l in a["tads"]])
-                if len(a["tads"]) > 0
-                else genomic.NA
-            )
-            for a in annotations
+        df_query[header] = [
+            (SEP.join(a) if len(a) > 0 else genomic.NA) for a in annotations
         ]
 
-        df_query["Genes in same TAD domain"] = [
-            (
-                SEP.join(
-                    [
-                        ",".join([str(g["gene_name"]) for g in l["annotations"]])
-                        for l in a["tads"]
-                    ]
-                )
-                if len(a["tads"]) > 0
-                else genomic.NA
-            )
-            for a in annotations
-        ]
+        print("Done.")
 
-    def annotate(self, locations: list[genomic.Location]) -> list[dict]:
+    def annotate(self, locations: list[genomic.Location]):
         self._cursor.execute(DELETE_QUERY_TABLE_SQL)
 
         print(f"Annotating regions using {self._db}")
@@ -163,9 +150,9 @@ class TADAnnotation:
             queries,
         )
 
-        self._cursor.execute(TAD_QUERY)
+        self._cursor.execute(REGION_QUERY)
 
-        annotation_map = collections.defaultdict(lambda: collections.defaultdict(set))
+        annotation_map = collections.defaultdict(set)
 
         for c in self._cursor:
             d = row_to_dict(c)
@@ -174,33 +161,39 @@ class TADAnnotation:
             start = d["start"]
             end = d["end"]
             loc = genomic.location.parse_location(d["location"])
-            tad_loc = genomic.Location(chr, start, end)
-            ids = d["gene_ids"].split(",")
-            names = d["gene_names"].split(",")
+            region_loc = genomic.Location(chr, start, end)
 
-            ann = [{"gene_id": i, "gene_name": n} for i, n in zip(ids, names)]
-
-            for a in ann:
-                annotation_map[loc][tad_loc].add(json.dumps(a))
+            annotation_map[loc].add(region_loc)
 
         ret = []
 
         for loc in locations:
-            loc_entry = {"location": loc, "tads": []}
+            ret.append(list(sorted(annotation_map[loc])))
 
-            for tad_loc in sorted(annotation_map[loc]):
-                ann_set = annotation_map[loc][tad_loc]
-
-                loc_entry["tads"].append(
-                    {
-                        "location": tad_loc,
-                        "annotations": sorted(
-                            [json.loads(d) for d in ann_set],
-                            key=lambda x: x["gene_name"],
-                        ),
-                    }
-                )
-
-            ret.append(loc_entry)
+        print("Done.")
 
         return ret
+
+
+class BlacklistAnnotation(RegionAnnotation):
+    def open(self, blacklist_db_file: str):
+        super().open(blacklist_db_file)
+
+    def annotate_df(self, df_query: pd.DataFrame, header: str = "Blacklist regions"):
+        super().annotate_df(df_query, header)
+
+
+class CentromereAnnotation(RegionAnnotation):
+    def open(self, centromere_db_file: str):
+        super().open(centromere_db_file)
+
+    def annotate_df(self, df_query: pd.DataFrame, header: str = "Centromere regions"):
+        super().annotate_df(df_query, header)
+
+
+class TelomereAnnotation(RegionAnnotation):
+    def open(self, telomere_db_file: str):
+        super().open(telomere_db_file)
+
+    def annotate_df(self, df_query: pd.DataFrame, header: str = "Telomere regions"):
+        super().annotate_df(df_query, header)

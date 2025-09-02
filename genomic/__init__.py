@@ -1,1 +1,1 @@
-from .location import Location
+from .location import NA, Location
