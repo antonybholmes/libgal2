@@ -1,7 +1,8 @@
 import pandas as pd
 
 import sqlite3
-from .genes import NA, SEP
+from .genes import SEP
+from .genomic.location import NA
 
 BLACKLIST_QUERY = f"""
 SELECT DISTINCT 

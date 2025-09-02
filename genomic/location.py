@@ -22,10 +22,11 @@ import re
 import sys
 from typing import Any, Iterable, Mapping, Union
 
-from . import text
-from . import species
+
+from .. import species
 
 TELOMERE_SIZE = 100000
+NA = "n/a"
 
 
 def one_base_loc(start: int, end: int) -> tuple[int, int]:
@@ -310,7 +311,7 @@ class Feature(Location):
         Returns:
                 Named argument.
         """
-        return self._id_map.get(name, text.NA)
+        return self._id_map.get(name, NA)
 
 
 class Chromosomes:
@@ -773,7 +774,7 @@ def is_overlapping(location1: Location, location2: Location) -> bool:
 
 
 def get_closest_tss(tss):
-    closest = text.NA
+    closest = NA
 
     min_d = 1000000
     min_abs_d = 1000000

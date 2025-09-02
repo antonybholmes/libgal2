@@ -1,7 +1,8 @@
 import collections
-import dataframe  # local module
+from . import dataframe  # local module
 import sqlite3
 from .. import genomic
+import json
 
 
 GENE_QUERY = f"""
@@ -20,7 +21,7 @@ JOIN gtf g ON
     g.feature = :feature AND 
     g.seqname = q.chr AND
     g.start <= q.end AND 
-    g.end >= q.start AND
+    g.end >= q.start
 ORDER BY q.location;
 """
 
@@ -115,25 +116,34 @@ class Annotation:
             queries,
         )
 
-        print("Processing exons...")
+        print(f"Processing {feature}s...")
 
         # find out which intronic regions are exonic
 
-        self._cursor.execute(GENE_QUERY)
+        self._cursor.execute(GENE_QUERY, {"feature": feature})
 
         annotation_map = collections.defaultdict(set)
 
         for c in self._cursor:
             d = row_to_dict(c)
+
             annotation_map[d["location"]].add(
-                {
-                    "gene_id": d["gene_id"],
-                    "gene_name": d["gene_name"],
-                    "strand": d["strand"],
-                }
+                json.dumps(
+                    {
+                        "gene_id": d["gene_id"],
+                        "gene_name": d["gene_name"],
+                        "strand": d["strand"],
+                    }
+                )
             )
 
         return [
-            sorted(annotation_map.get(str(loc), set()), key=lambda x: x["gene_name"])
+            {
+                "location": loc,
+                "annotations": sorted(
+                    [json.loads(d) for d in annotation_map.get(str(loc), set())],
+                    key=lambda x: x["gene_name"],
+                ),
+            }
             for loc in locations
         ]

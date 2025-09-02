@@ -4,12 +4,12 @@ import sys
 from typing import Union
 import pandas as pd
 import pyranges as pr
-
+from ..genomic.location import NA
 import sqlite3
 
 
 SEP = " | "
-NA = "n/a"
+
 PROMOTER_LIM = [2000, 1000]
 TOP = 40
 
@@ -792,6 +792,7 @@ class DataframeAnnotation:
 
         print("Processing closest gene annotations...")
 
+        print(self._max_distance)
         self._cursor.execute(
             NEAREST_GENE_JOIN_QUERY, {"max_distance": self._max_distance}
         )
