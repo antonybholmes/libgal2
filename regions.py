@@ -122,8 +122,11 @@ class RegionAnnotation:
 
         annotations = self.annotate(locs)
 
+        print(annotations)
+
         df_query[header] = [
-            (SEP.join(a) if len(a) > 0 else genomic.NA) for a in annotations
+            (SEP.join([str(l) for l in a]) if len(a) > 0 else genomic.NA)
+            for a in annotations
         ]
 
         print("Done.")
