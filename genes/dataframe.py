@@ -210,9 +210,51 @@ ORDER BY ABS(tss_dist), g.gene_name
 LIMIT :limit
 """
 
+# CLOSEST_GENE_GROUP_BY_QUERY = f"""
+# INSERT INTO query_closest_genes (location, chr, start, end, midpoint, strand, tss_dist, gene_id, gene_name, gene_rank)
+# SELECT DISTINCT location, chr, start, end, midpoint, strand, tss_dist, gene_id, gene_name, gene_rank
+# FROM (
+#     SELECT
+#         q.location,
+#         q.chr,
+#         q.start,
+#         q.end,
+#         q.midpoint,
+#         g.strand,
+#         g.tss - q.midpoint AS tss_dist,
+#         ABS(q.midpoint - g.tss) AS abs_tss_dist,
+#         g.gene_id,
+#         g.gene_name,
+#         ROW_NUMBER() OVER (PARTITION BY q.location ORDER BY abs_tss_dist) AS gene_rank
+#     FROM query_regions q
+#     JOIN gtf g ON g.feature = 'gene' AND g.seqname = q.chr
+# )
+# WHERE gene_rank <= :limit
+# """
+
 CLOSEST_GENE_GROUP_BY_QUERY = f"""
-INSERT INTO query_closest_genes (location, chr, start, end, midpoint, gene_id, gene_name, gene_rank)
-SELECT DISTINCT location, chr, start, end, midpoint, gene_id, gene_name, gene_rank
+INSERT INTO query_closest_genes (location, 
+    chr, 
+    start, 
+    end, 
+    midpoint, 
+    strand, 
+    tss_dist, 
+    gene_id, 
+    gene_name, 
+    transcript_id, 
+    gene_rank)
+SELECT DISTINCT location, 
+    chr, 
+    start, 
+    end, 
+    midpoint, 
+    strand, 
+    tss_dist, 
+    gene_id, 
+    gene_name, 
+    transcript_id, 
+    gene_rank
 FROM (
     SELECT
         q.location,
@@ -220,14 +262,20 @@ FROM (
         q.start,
         q.end,
         q.midpoint,
+        g.strand,
+        g.tss - q.midpoint AS tss_dist,
+        ABS(q.midpoint - g.tss) AS abs_tss_dist,
         g.gene_id,
         g.gene_name,
+        g.transcript_id,
         ROW_NUMBER() OVER (PARTITION BY q.location ORDER BY ABS(q.midpoint - g.tss)) AS gene_rank
     FROM query_regions q
-    JOIN gtf g ON g.feature = 'gene' AND g.seqname = q.chr
+    JOIN gtf g ON g.is_longest = 1 AND g.seqname = q.chr
 )
 WHERE gene_rank <= :limit
 """
+
+SELECT_CLOSEST_GENES_QUERY = f"""SELECT * FROM query_closest_genes"""
 
 # CLOSEST_GENE_GROUP_BY_QUERY = f"""
 # WITH ranked_transcripts AS (
@@ -289,7 +337,7 @@ INSERT INTO query_closest_transcripts (location,
     is_intragenic,
     is_promoter,
     gene_rank,
-    rank)
+    transcript_rank)
 SELECT DISTINCT location, 
     chr, 
     start, 
@@ -304,7 +352,7 @@ SELECT DISTINCT location,
     is_intragenic,
     is_promoter,
     gene_rank,
-    rank
+    transcript_rank
 FROM (
     SELECT q.location,
         q.chr,
@@ -324,83 +372,57 @@ FROM (
             (g.strand = '-' AND (g.tss - :promoter_lim_2) <= q.midpoint AND (g.tss + :promoter_lim_1) >= q.midpoint)
         ) AS is_promoter,
         q.gene_rank,
-        ROW_NUMBER() OVER (PARTITION BY q.location, q.gene_id ORDER BY ABS(q.midpoint - g.tss)) AS rank
+        ROW_NUMBER() OVER (PARTITION BY q.location, q.gene_id ORDER BY ABS(q.midpoint - g.tss)) AS transcript_rank
     FROM query_closest_genes q
     JOIN gtf g ON g.feature = 'transcript' AND 
         g.seqname = q.chr AND 
         g.gene_id = q.gene_id
 )
-WHERE rank = 1
+WHERE transcript_rank = 1
 """
 
 # find all occurences of being exonic, but keep one entry per transcript
 # for reference
-SELECT_CLOSEST_TRANSCRIPTS_QUERY = f"""SELECT * FROM query_closest_transcripts;
-"""
+SELECT_CLOSEST_TRANSCRIPTS_QUERY = f"""SELECT * FROM query_closest_transcripts;"""
 
 # find all occurences of being exonic, but keep one entry per transcript
 # for reference
-SELECT_CLOSEST_EXONS_QUERY = f"""
-WITH ranked_exons AS (
-    SELECT DISTINCT
-        q.chr, 
-        q.location, 
-        q.gene_id,
-        q.gene_name,
-        q.transcript_id, 
-        q.strand, 
-        q.midpoint, 
-        q.tss_dist, 
-        q.abs_tss_dist, 
-        q.is_intragenic,
-        q.is_promoter,
-        CASE 
-            WHEN g.start IS NOT NULL THEN 1 
-            ELSE 0 
-        END AS is_exonic,
-        ROW_NUMBER() OVER (PARTITION BY q.transcript_id ORDER BY g.exon_number) AS rank
-    FROM query_closest_transcripts q
-    LEFT JOIN gtf g ON g.feature = 'exon' AND 
-        g.gene_id = q.gene_id AND 
-        g.transcript_id = q.transcript_id AND 
-        q.start <= g.end AND 
-        q.end >= g.start
-)
-SELECT *
-FROM ranked_exons
-WHERE rank = 1;
+CLOSEST_IS_INTRAGENIC_QUERY = f"""
+SELECT DISTINCT
+    q.location, 
+    q.gene_id
+FROM query_closest_genes q
+JOIN gtf g ON g.feature = 'transcript' AND 
+    g.gene_id = q.gene_id AND 
+    g.start <= q.end AND 
+    g.end >= q.start
 """
 
-COUNT_CLOSEST_EXONS_QUERY = f"""
-WITH ranked_exons AS (
-    SELECT DISTINCT
-        q.chr, 
-        q.location, 
-        q.gene_id,
-        q.gene_name,
-        q.transcript_id, 
-        q.strand, 
-        q.midpoint, 
-        q.tss_dist, 
-        q.abs_tss_dist, 
-        q.is_intragenic,
-        q.is_promoter,
-        CASE 
-            WHEN g.start IS NOT NULL THEN 1 
-            ELSE 0 
-        END AS is_exonic,
-        ROW_NUMBER() OVER (PARTITION BY q.transcript_id ORDER BY g.exon_number) AS rank
-    FROM query_closest_transcripts q
-    LEFT JOIN gtf g ON g.feature = 'exon' AND 
-        g.gene_id = q.gene_id AND 
-        g.transcript_id = q.transcript_id AND 
-        q.start <= g.end AND 
-        q.end >= g.start
-)
-SELECT COUNT(*)
-FROM ranked_exons
-WHERE rank = 1;
+CLOSEST_IS_PROMOTER_QUERY = f"""
+SELECT DISTINCT
+    q.location, 
+    q.gene_id
+FROM query_closest_genes q
+JOIN gtf g ON g.feature = 'transcript' AND 
+    g.gene_id = q.gene_id AND 
+    (
+        (g.strand = '+' AND (g.tss - :promoter_lim_1) <= q.midpoint AND (g.tss + :promoter_lim_2) >= q.midpoint) 
+        OR
+        (g.strand = '-' AND (g.tss - :promoter_lim_2) <= q.midpoint AND (g.tss + :promoter_lim_1) >= q.midpoint)
+    )
 """
+
+CLOSEST_IS_EXON_QUERY = f"""
+SELECT DISTINCT
+    q.location, 
+    q.gene_id
+FROM query_closest_genes q
+JOIN gtf g ON g.feature = 'exon' AND 
+    g.gene_id = q.gene_id AND 
+    g.start <= q.end AND 
+    g.end >= q.start
+"""
+
 
 # IS_EXONIC_QUERY = f"""
 # SELECT DISTINCT COUNT(id) as count
@@ -591,8 +613,11 @@ TEMP_CLOSEST_GENE_TABLE_SQL = f"""
     start INTEGER NOT NULL,
     end INTEGER NOT NULL,
     midpoint INTEGER NOT NULL,
+    strand TEXT NOT NULL,
+    tss_dist INTEGER NOT NULL,
     gene_id TEXT NOT NULL,
     gene_name TEXT NOT NULL,
+    transcript_id TEXT NOT NULL,
     gene_rank INTEGER NOT NULL
 );
 """
@@ -602,10 +627,30 @@ TEMP_CLOSEST_GENE_TABLE_SQL = f"""
 # """
 
 
-# INSERT_TEMP_CLOSEST_GENES_QUERY = f"""
-#     INSERT INTO query_closest_genes (location, gene_id, midpoint)
-#     VALUES (:location, :gene_id, :midpoint)
-# """
+INSERT_TEMP_CLOSEST_GENES_QUERY = f"""
+    INSERT INTO query_closest_genes (location, 
+    chr, 
+    start, 
+    end,
+    midpoint,
+    strand, 
+    tss_dist,
+    gene_id, 
+    gene_name, 
+    transcript_id,
+    gene_rank)
+    VALUES (:location, 
+    :chr, 
+    :start, 
+    :end,
+    :midpoint,
+    :strand, 
+    :tss_dist,
+    :gene_id, 
+    :gene_name, 
+    :transcript_id,
+    :gene_rank)
+"""
 
 TEMP_CLOSEST_GENES_INDEX_SQL = (
     f"""CREATE INDEX IF NOT EXISTS idx_closest_genes ON query_closest_genes (gene_id)"""
@@ -628,7 +673,7 @@ TEMP_CLOSEST_TRANSCRIPT_TABLE_SQL = f"""
     is_intragenic INTEGER NOT NULL,
     is_promoter INTEGER NOT NULL,
     gene_rank INTEGER NOT NULL,
-    rank INTEGER NOT NULL
+    transcript_rank INTEGER NOT NULL
 );
 """
 
@@ -1093,14 +1138,6 @@ class DataframeAnnotation:
         self._cursor.execute(TEMP_CLOSEST_TRANSCRIPT_TABLE_SQL)
         self._cursor.execute(TEMP_CLOSEST_TRANSCRIPT_INDEX_SQL)
 
-        print(f"Finding the {closest_n} closest annotations...")
-        # keep track of how many closest are assigned at a location
-        used_symbols = collections.defaultdict(dict)
-
-        closest_annotation_map = collections.defaultdict(
-            lambda: collections.defaultdict(set)
-        )
-
         print(f"Processing {closest_n} closest gene annotations...")
 
         self._cursor.execute(
@@ -1110,6 +1147,28 @@ class DataframeAnnotation:
             },
         )
 
+        # used_genes = collections.defaultdict(dict)
+        # closest_genes = []
+        # for row in self._cursor:
+        #     gene_id = row["gene_id"]
+
+        #     if gene_id not in used_genes[row["location"]]:
+        #         if len(used_genes[row["location"]]) < closest_n:
+        #             closest_index = len(used_genes[row["location"]]) + 1
+        #             used_genes[row["location"]][gene_id] = closest_index
+
+        #     closest_rank = used_genes[row["location"]].get(gene_id, -1)
+
+        #     if closest_rank != -1:
+        #         row_dict = dict(row)
+        #         row_dict["gene_rank"] = closest_rank
+        #         closest_genes.append(row_dict)
+
+        # self._cursor.executemany(
+        #     INSERT_TEMP_CLOSEST_GENES_QUERY,
+        #     closest_genes,
+        # )
+
         self._cursor.execute(
             CLOSEST_GENE_GROUP_BY_COUNT_QUERY,
         )
@@ -1117,22 +1176,22 @@ class DataframeAnnotation:
         count = self._cursor.fetchone()["count"]
         print(f"Found {count} closest gene annotations")
 
-        print(f"Processing {closest_n} closest transcript annotations...")
+        # print(f"Processing {closest_n} closest transcript annotations...")
 
-        self._cursor.execute(
-            INSERT_CLOSEST_TRANSCRIPT_GROUP_BY_QUERY,
-            {
-                "promoter_lim_1": self._promoter_lim[0],
-                "promoter_lim_2": self._promoter_lim[1],
-            },
-        )
+        # self._cursor.execute(
+        #     INSERT_CLOSEST_TRANSCRIPT_GROUP_BY_QUERY,
+        #     {
+        #         "promoter_lim_1": self._promoter_lim[0],
+        #         "promoter_lim_2": self._promoter_lim[1],
+        #     },
+        # )
 
-        self._cursor.execute(
-            CLOSEST_TRANSCRIPT_GROUP_BY_COUNT_QUERY,
-        )
+        # self._cursor.execute(
+        #     CLOSEST_TRANSCRIPT_GROUP_BY_COUNT_QUERY,
+        # )
 
-        count = self._cursor.fetchone()["count"]
-        print(f"Found {count} closest transcript annotations")
+        # count = self._cursor.fetchone()["count"]
+        # print(f"Found {count} closest transcript annotations")
 
         # print(f"Processing {closest_n} closest exon annotations...")
 
@@ -1143,13 +1202,40 @@ class DataframeAnnotation:
         # count = self._cursor.fetchone()["count"]
         # print(f"Found {count} closest exon annotations")
 
+        # see which are exonic
+        exon_map = collections.defaultdict(set)
+
         self._cursor.execute(
-            SELECT_CLOSEST_TRANSCRIPTS_QUERY,
+            CLOSEST_IS_INTRAGENIC_QUERY,
+        )
+
+        for row in self._cursor:
+            exon_map[f"{row['location']}:{row['gene_id']}"].add("intragenic")
+
+        self._cursor.execute(
+            CLOSEST_IS_PROMOTER_QUERY,
+            {
+                "promoter_lim_1": self._promoter_lim[0],
+                "promoter_lim_2": self._promoter_lim[1],
+            },
+        )
+
+        for row in self._cursor:
+            exon_map[f"{row['location']}:{row['gene_id']}"].add("promoter")
+
+        self._cursor.execute(
+            CLOSEST_IS_EXON_QUERY,
+        )
+
+        for row in self._cursor:
+            exon_map[f"{row['location']}:{row['gene_id']}"].add("exonic")
+
+        self._cursor.execute(
+            # SELECT_CLOSEST_TRANSCRIPTS_QUERY,
+            SELECT_CLOSEST_GENES_QUERY
         )
 
         closest_genes = collections.defaultdict(list)
-
-        current_location = None
 
         # self._df_query[f"#{i} Transcript Id"] = closest_cols[i - 1][0]
         #     self._df_query[f"#{i} Gene Id"] = closest_cols[i - 1][1]
@@ -1176,7 +1262,7 @@ class DataframeAnnotation:
         print("Writing closest annotations...")
 
         for idx, row in enumerate(self._cursor):
-            d = dict(row)
+            #
 
             # print(d)
 
@@ -1188,32 +1274,27 @@ class DataframeAnnotation:
                 )
                 break
 
-            types = set()
+            # types = set()
 
-            # if d["is_intragenic"]:
-            #     types.add("intragenic")
-            # if d["is_exonic"]:
-            #     types.add("exonic")
-            # if d["is_promoter"]:
-            #     types.add("promoter")
+            id = f"{row['location']}:{row['gene_id']}"  #:{row['transcript_id']}"
 
-            if "intragenic" in types and "exonic" not in types:
-                types.add("intronic")
+            if "intragenic" in exon_map[id] and "exonic" not in exon_map[id]:
+                exon_map[id].discard("intragenic")
 
-            if len(types) == 0:
-                types.add("intergenic")
+            if len(exon_map[id]) == 0:
+                exon_map[id].add("intergenic")
 
-            closest_idx = d["gene_rank"] - 1  # idx % closest_n
-            closest_block = closest_idx * 6 + 1
+            closest_rank = row["gene_rank"] - 1  # idx % closest_n
+            closest_block = closest_rank * 6 + 1
 
-            data[row_idx, 0] = d["location"]
+            data[row_idx, 0] = row["location"]
 
-            data[row_idx, closest_block] = d["transcript_id"]
-            data[row_idx, closest_block + 1] = d["gene_id"]
-            data[row_idx, closest_block + 2] = d["gene_name"]
-            data[row_idx, closest_block + 3] = d["strand"]
-            data[row_idx, closest_block + 4] = d["tss_dist"]
-            data[row_idx, closest_block + 5] = ",".join(sorted(types))
+            data[row_idx, closest_block] = row["transcript_id"]
+            data[row_idx, closest_block + 1] = row["gene_id"]
+            data[row_idx, closest_block + 2] = row["gene_name"]
+            data[row_idx, closest_block + 3] = row["strand"]
+            data[row_idx, closest_block + 4] = row["tss_dist"]
+            data[row_idx, closest_block + 5] = ",".join(exon_map[id])
 
             if idx % 1000 == 0:
                 print(f"Processed {idx} closest annotations...")
