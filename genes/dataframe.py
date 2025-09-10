@@ -29,25 +29,77 @@ TOP = 40
 #     :midpoint >= transcript.start AND :midpoint <= transcript.end
 #     """
 
+# INTRAGENIC_JOIN_QUERY = f"""
+# SELECT DISTINCT
+#     q.location,
+#     q.chr,
+#     q.midpoint,
+#     g.gene_id,
+#     g.gene_name,
+#     g.transcript_id,
+#     g.tss,
+#     g.strand,
+#     'intronic' AS type,
+#     q.midpoint - g.tss AS tss_dist
+#     (
+#         (g.strand = '+' AND (g.tss - :promoter_lim_1) <= q.midpoint AND (g.tss + :promoter_lim_2) >= q.midpoint)
+#         OR
+#         (g.strand = '-' AND (g.tss - :promoter_lim_2) <= q.midpoint AND (g.tss + :promoter_lim_1) >= q.midpoint)
+#     ) as is_promoter
+# FROM query_regions q
+# JOIN gtf g ON
+#     g.feature = 'transcript' AND
+#     g.seqname = q.chr AND
+#     (
+#         (g.strand = '+' AND (g.tss - :promoter_lim_1) <= q.midpoint AND (g.tss + :promoter_lim_2) >= q.midpoint)
+#         OR
+#         (g.strand = '-' AND (g.tss - :promoter_lim_2) <= q.midpoint AND (g.tss + :promoter_lim_1) >= q.midpoint)
+#     )
+# ORDER BY q.location
+# """
+
 INTRAGENIC_JOIN_QUERY = f"""
-SELECT DISTINCT
-    q.location,
-    q.chr,
-    q.midpoint,
+INSERT INTO query_closest_genes (location, 
+    chr, 
+    start, 
+    end, 
+    midpoint, 
+    strand, 
+    tss_dist, 
+    gene_id, 
+    gene_name, 
+    transcript_id,
+    is_intragenic,
+    is_promoter,
+    gene_rank)
+SELECT q.location, 
+    q.chr, 
+    q.start, 
+    q.end, 
+    q.midpoint, 
+    g.strand, 
+    CASE
+        WHEN g.strand = '-' THEN g.tss - q.midpoint
+        ELSE q.midpoint - g.tss
+    END AS tss_dist,
     g.gene_id, 
-    g.gene_name,
+    g.gene_name, 
     g.transcript_id,
-    g.tss,
-    g.strand,
-    'intronic' AS type,
-    q.midpoint - g.tss AS tss_dist
+    q.midpoint >= g.start AND q.midpoint <= g.end AS is_intragenic,
+    (
+        (g.strand = '+' AND (g.tss - :promoter_lim_1) <= q.midpoint AND (g.tss + :promoter_lim_2) >= q.midpoint) 
+        OR
+        (g.strand = '-' AND (g.tss - :promoter_lim_2) <= q.midpoint AND (g.tss + :promoter_lim_1) >= q.midpoint)
+    ) as is_promoter,
+    1 AS gene_rank
 FROM query_regions q
-JOIN gtf g ON 
-    g.feature = 'transcript' AND 
-    g.seqname = q.chr AND 
-    q.midpoint >= g.start AND 
-    q.midpoint <= g.end
-ORDER BY q.location
+JOIN gtf g ON g.feature = 'transcript' AND 
+g.seqname = q.chr AND 
+(
+    (g.strand = '+' AND q.midpoint >= (g.start - :promoter_lim_1) AND q.midpoint <= g.end) 
+    OR
+    (g.strand = '-' AND q.midpoint >= g.start AND q.midpoint <= (g.end + :promoter_lim_1))
+)
 """
 
 # EXON_QUERY = f"""SELECT DISTINCT g.gene_id,
@@ -84,42 +136,42 @@ JOIN gtf g ON
 ORDER BY q.location
 """
 
-IS_INTRAGENIC_JOIN_QUERY = f"""
-SELECT DISTINCT q.row_idx
-FROM intragenic_query_regions q
-JOIN gtf g ON 
-    g.feature = 'transcript' AND 
-    g.seqname = q.chr AND 
-    g.start <= q.midpoint AND 
-    g.end >= q.midpoint AND
-    g.transcript_id = q.transcript_id
-ORDER BY q.row_idx
-"""
+# IS_INTRAGENIC_JOIN_QUERY = f"""
+# SELECT DISTINCT q.row_idx
+# FROM intragenic_query_regions q
+# JOIN gtf g ON
+#     g.feature = 'transcript' AND
+#     g.seqname = q.chr AND
+#     g.start <= q.midpoint AND
+#     g.end >= q.midpoint AND
+#     g.transcript_id = q.transcript_id
+# ORDER BY q.row_idx
+# """
 
-IS_EXONIC_JOIN_QUERY = f"""
-SELECT DISTINCT q.row_idx
-FROM intragenic_query_regions q
-JOIN gtf g ON 
-    g.feature = 'exon' AND 
-    g.seqname = q.chr AND 
-    g.start <= q.midpoint AND 
-    g.end >= q.midpoint AND
-    g.transcript_id = q.transcript_id
-ORDER BY q.row_idx
-"""
+# IS_EXONIC_JOIN_QUERY = f"""
+# SELECT DISTINCT q.row_idx
+# FROM intragenic_query_regions q
+# JOIN gtf g ON
+#     g.feature = 'exon' AND
+#     g.seqname = q.chr AND
+#     g.start <= q.midpoint AND
+#     g.end >= q.midpoint AND
+#     g.transcript_id = q.transcript_id
+# ORDER BY q.row_idx
+# """
 
-IS_PROMOTER_JOIN_QUERY = f"""
-SELECT DISTINCT q.row_idx
-FROM intragenic_query_regions q
-JOIN gtf g ON 
-    g.feature = 'transcript' AND 
-    g.seqname = q.chr AND
-    (g.tss - :promoter_lim_1) <= q.midpoint AND 
-    (g.tss + :promoter_lim_2) >= q.midpoint AND 
-    g.strand = :strand AND
-    g.transcript_id = q.transcript_id
-ORDER BY q.row_idx
-"""
+# IS_PROMOTER_JOIN_QUERY = f"""
+# SELECT DISTINCT q.row_idx
+# FROM intragenic_query_regions q
+# JOIN gtf g ON
+#     g.feature = 'transcript' AND
+#     g.seqname = q.chr AND
+#     (g.tss - :promoter_lim_1) <= q.midpoint AND
+#     (g.tss + :promoter_lim_2) >= q.midpoint AND
+#     g.strand = :strand AND
+#     g.transcript_id = q.transcript_id
+# ORDER BY q.row_idx
+# """
 
 
 # PROMOTER_QUERY = f"""SELECT DISTINCT gene.gene_id,
@@ -136,29 +188,29 @@ ORDER BY q.row_idx
 #     :midpoint >= (transcript.tss - :promoter_lim_1) AND :midpoint <= (transcript.tss + :promoter_lim_2)
 #     """
 
-PROMOTER_QUERY = f"""
-SELECT DISTINCT
-    q.location,
-    q.chr,
-    q.midpoint,
-    g.gene_id, 
-    g.gene_name,
-    g.transcript_id, 
-    g.tss,
-    g.strand,
-    'promoter' AS type,
-    q.midpoint - g.tss AS tss_dist
-FROM query_regions q
-JOIN gtf g ON 
-    g.feature = 'transcript' AND 
-    g.seqname = q.chr AND
-    (
-        (g.strand = '+' AND (g.tss - :promoter_lim_1) <= q.midpoint AND (g.tss + :promoter_lim_2) >= q.midpoint) 
-        OR
-        (g.strand = '-' AND (g.tss - :promoter_lim_2) <= q.midpoint AND (g.tss + :promoter_lim_1) >= q.midpoint)
-    )
-ORDER BY q.location
-"""
+# PROMOTER_QUERY = f"""
+# SELECT DISTINCT
+#     q.location,
+#     q.chr,
+#     q.midpoint,
+#     g.gene_id,
+#     g.gene_name,
+#     g.transcript_id,
+#     g.tss,
+#     g.strand,
+#     'promoter' AS type,
+#     q.midpoint - g.tss AS tss_dist
+# FROM query_regions q
+# JOIN gtf g ON
+#     g.feature = 'transcript' AND
+#     g.seqname = q.chr AND
+#     (
+#         (g.strand = '+' AND (g.tss - :promoter_lim_1) <= q.midpoint AND (g.tss + :promoter_lim_2) >= q.midpoint)
+#         OR
+#         (g.strand = '-' AND (g.tss - :promoter_lim_2) <= q.midpoint AND (g.tss + :promoter_lim_1) >= q.midpoint)
+#     )
+# ORDER BY q.location
+# """
 
 
 # NEAREST_intragenic_QUERY = f"""SELECT DISTINCT gene.gene_id,
@@ -177,38 +229,38 @@ ORDER BY q.location
 #     """
 
 
-CLOSEST_GENE_JOIN_QUERY = f"""
-SELECT DISTINCT
-    q.location,
-    q.chr,
-    q.midpoint,
-    g.gene_id, 
-    g.gene_name,
-    g.transcript_id,
-    g.tss,
-    g.strand,
-    'intergenic' AS type,
-    g.start,
-    g.end,
-    q.midpoint - g.tss AS tss_dist
-FROM query_regions q
-JOIN gtf g ON 
-    g.feature = 'transcript' AND
-    g.seqname = q.chr
-WHERE ABS(tss_dist) < :max_distance
-ORDER BY q.location, ABS(tss_dist), g.gene_name
-"""
+# CLOSEST_GENE_JOIN_QUERY = f"""
+# SELECT DISTINCT
+#     q.location,
+#     q.chr,
+#     q.midpoint,
+#     g.gene_id,
+#     g.gene_name,
+#     g.transcript_id,
+#     g.tss,
+#     g.strand,
+#     'intergenic' AS type,
+#     g.start,
+#     g.end,
+#     q.midpoint - g.tss AS tss_dist
+# FROM query_regions q
+# JOIN gtf g ON
+#     g.feature = 'transcript' AND
+#     g.seqname = q.chr
+# WHERE ABS(tss_dist) < :max_distance
+# ORDER BY q.location, ABS(tss_dist), g.gene_name
+# """
 
-CLOSEST_GENE_QUERY = f"""
-SELECT DISTINCT
-    g.gene_id,
-    g.gene_name,
-    :midpoint - g.tss AS tss_dist
-FROM gtf g
-WHERE g.feature = 'gene' AND g.seqname = :chromosome
-ORDER BY ABS(tss_dist), g.gene_name
-LIMIT :limit
-"""
+# CLOSEST_GENE_QUERY = f"""
+# SELECT DISTINCT
+#     g.gene_id,
+#     g.gene_name,
+#     :midpoint - g.tss AS tss_dist
+# FROM gtf g
+# WHERE g.feature = 'gene' AND g.seqname = :chromosome
+# ORDER BY ABS(tss_dist), g.gene_name
+# LIMIT :limit
+# """
 
 # CLOSEST_GENE_GROUP_BY_QUERY = f"""
 # INSERT INTO query_closest_genes (location, chr, start, end, midpoint, strand, tss_dist, gene_id, gene_name, gene_rank)
@@ -242,9 +294,11 @@ INSERT INTO query_closest_genes (location,
     tss_dist, 
     gene_id, 
     gene_name, 
-    transcript_id, 
+    transcript_id,
+    is_intragenic,
+    is_promoter,
     gene_rank)
-SELECT DISTINCT location, 
+SELECT location, 
     chr, 
     start, 
     end, 
@@ -253,7 +307,9 @@ SELECT DISTINCT location,
     tss_dist, 
     gene_id, 
     gene_name, 
-    transcript_id, 
+    transcript_id,
+    is_intragenic,
+    is_promoter,
     gene_rank
 FROM (
     SELECT
@@ -263,11 +319,19 @@ FROM (
         q.end,
         q.midpoint,
         g.strand,
-        g.tss - q.midpoint AS tss_dist,
-        ABS(q.midpoint - g.tss) AS abs_tss_dist,
+        CASE
+            WHEN g.strand = '-' THEN g.tss - q.midpoint
+            ELSE q.midpoint - g.tss
+        END AS tss_dist,
         g.gene_id,
         g.gene_name,
         g.transcript_id,
+        (q.midpoint <= g.end AND q.midpoint >= g.start) AS is_intragenic,
+        (
+            (g.strand = '+' AND (g.tss - :promoter_lim_1) <= q.midpoint AND (g.tss + :promoter_lim_2) >= q.midpoint) 
+            OR
+            (g.strand = '-' AND (g.tss - :promoter_lim_2) <= q.midpoint AND (g.tss + :promoter_lim_1) >= q.midpoint)
+        ) AS is_promoter,
         ROW_NUMBER() OVER (PARTITION BY q.location ORDER BY ABS(q.midpoint - g.tss)) AS gene_rank
     FROM query_regions q
     JOIN gtf g ON g.is_longest = 1 AND g.seqname = q.chr
@@ -322,68 +386,68 @@ FROM query_closest_transcripts
 #     WHERE rank = 1;
 # """
 
-INSERT_CLOSEST_TRANSCRIPT_GROUP_BY_QUERY = f"""
-INSERT INTO query_closest_transcripts (location, 
-    chr, 
-    start, 
-    end, 
-    midpoint, 
-    strand, 
-    gene_id,
-    gene_name,
-    transcript_id, 
-    tss_dist, 
-    abs_tss_dist, 
-    is_intragenic,
-    is_promoter,
-    gene_rank,
-    transcript_rank)
-SELECT DISTINCT location, 
-    chr, 
-    start, 
-    end, 
-    midpoint, 
-    strand, 
-    gene_id,
-    gene_name,
-    transcript_id, 
-    tss_dist, 
-    abs_tss_dist, 
-    is_intragenic,
-    is_promoter,
-    gene_rank,
-    transcript_rank
-FROM (
-    SELECT q.location,
-        q.chr,
-        q.start,
-        q.end,
-        q.midpoint,
-        g.strand,
-        q.gene_id,
-        q.gene_name,
-        g.transcript_id,
-        q.midpoint - g.tss AS tss_dist,
-        ABS(q.midpoint - g.tss) AS abs_tss_dist,
-        q.start <= g.end AND q.end >= g.start AS is_intragenic,
-        (
-            (g.strand = '+' AND (g.tss - :promoter_lim_1) <= q.midpoint AND (g.tss + :promoter_lim_2) >= q.midpoint) 
-            OR
-            (g.strand = '-' AND (g.tss - :promoter_lim_2) <= q.midpoint AND (g.tss + :promoter_lim_1) >= q.midpoint)
-        ) AS is_promoter,
-        q.gene_rank,
-        ROW_NUMBER() OVER (PARTITION BY q.location, q.gene_id ORDER BY ABS(q.midpoint - g.tss)) AS transcript_rank
-    FROM query_closest_genes q
-    JOIN gtf g ON g.feature = 'transcript' AND 
-        g.seqname = q.chr AND 
-        g.gene_id = q.gene_id
-)
-WHERE transcript_rank = 1
-"""
+# INSERT_CLOSEST_TRANSCRIPT_GROUP_BY_QUERY = f"""
+# INSERT INTO query_closest_transcripts (location,
+#     chr,
+#     start,
+#     end,
+#     midpoint,
+#     strand,
+#     gene_id,
+#     gene_name,
+#     transcript_id,
+#     tss_dist,
+#     abs_tss_dist,
+#     is_intragenic,
+#     is_promoter,
+#     gene_rank,
+#     transcript_rank)
+# SELECT DISTINCT location,
+#     chr,
+#     start,
+#     end,
+#     midpoint,
+#     strand,
+#     gene_id,
+#     gene_name,
+#     transcript_id,
+#     tss_dist,
+#     abs_tss_dist,
+#     is_intragenic,
+#     is_promoter,
+#     gene_rank,
+#     transcript_rank
+# FROM (
+#     SELECT q.location,
+#         q.chr,
+#         q.start,
+#         q.end,
+#         q.midpoint,
+#         g.strand,
+#         q.gene_id,
+#         q.gene_name,
+#         g.transcript_id,
+#         q.midpoint - g.tss AS tss_dist,
+#         ABS(q.midpoint - g.tss) AS abs_tss_dist,
+#         q.start <= g.end AND q.end >= g.start AS is_intragenic,
+#         (
+#             (g.strand = '+' AND (g.tss - :promoter_lim_1) <= q.midpoint AND (g.tss + :promoter_lim_2) >= q.midpoint)
+#             OR
+#             (g.strand = '-' AND (g.tss - :promoter_lim_2) <= q.midpoint AND (g.tss + :promoter_lim_1) >= q.midpoint)
+#         ) AS is_promoter,
+#         q.gene_rank,
+#         ROW_NUMBER() OVER (PARTITION BY q.location, q.gene_id ORDER BY ABS(q.midpoint - g.tss)) AS transcript_rank
+#     FROM query_closest_genes q
+#     JOIN gtf g ON g.feature = 'transcript' AND
+#         g.seqname = q.chr AND
+#         g.gene_id = q.gene_id
+# )
+# WHERE transcript_rank = 1
+# """
 
 # find all occurences of being exonic, but keep one entry per transcript
 # for reference
-SELECT_CLOSEST_TRANSCRIPTS_QUERY = f"""SELECT * FROM query_closest_transcripts;"""
+# SELECT_CLOSEST_TRANSCRIPTS_QUERY = f"""SELECT * FROM query_closest_transcripts;"""
 
 # find all occurences of being exonic, but keep one entry per transcript
 # for reference
@@ -415,7 +479,8 @@ JOIN gtf g ON g.feature = 'transcript' AND
 CLOSEST_IS_EXON_QUERY = f"""
 SELECT DISTINCT
     q.location, 
-    q.gene_id
+    q.gene_id,
+    g.transcript_id
 FROM query_closest_genes q
 JOIN gtf g ON g.feature = 'exon' AND 
     g.gene_id = q.gene_id AND 
@@ -550,29 +615,29 @@ TEMP_QUERY_TABLE_SQL = f"""
 );
 """
 
-TEMP_INTRAGENIC_TABLE_SQL = f"""
-    CREATE TEMP TABLE IF NOT EXISTS intragenic_query_regions (
-    row_idx INTEGER NOT NULL,
-    location TEXT NOT NULL,
-    chr TEXT NOT NULL,
-    midpoint INTEGER NOT NULL,
-    transcript_id TEXT NOT NULL
-);
-"""
+# TEMP_INTRAGENIC_TABLE_SQL = f"""
+#     CREATE TEMP TABLE IF NOT EXISTS intragenic_query_regions (
+#     row_idx INTEGER NOT NULL,
+#     location TEXT NOT NULL,
+#     chr TEXT NOT NULL,
+#     midpoint INTEGER NOT NULL,
+#     transcript_id TEXT NOT NULL
+# );
+# """
 
 
-INSERT_INTRAGENIC_QUERY = f"""
-    INSERT INTO intragenic_query_regions (row_idx, location, chr, midpoint, transcript_id)
-    VALUES (:row_idx, :location, :chr, :midpoint, :transcript_id)
-"""
+# INSERT_INTRAGENIC_QUERY = f"""
+#     INSERT INTO intragenic_query_regions (row_idx, location, chr, midpoint, transcript_id)
+#     VALUES (:row_idx, :location, :chr, :midpoint, :transcript_id)
+# """
 
-DROP_INTRAGENIC_TABLE_SQL = f"""
-    DROP TABLE IF EXISTS intragenic_query_regions
-"""
+# DROP_INTRAGENIC_TABLE_SQL = f"""
+#     DROP TABLE IF EXISTS intragenic_query_regions
+# """
 
-DELETE_INTRAGENIC_TABLE_SQL = f"""
-    DELETE FROM intragenic_query_regions
-"""
+# DELETE_INTRAGENIC_TABLE_SQL = f"""
+#     DELETE FROM intragenic_query_regions
+# """
 
 DELETE_QUERY_TABLE_SQL = f"""
     DELETE FROM query_regions
@@ -598,7 +663,7 @@ TEMP_INDEX_QUERY_TABLE_LOCATION_SQL = (
 #     "CREATE INDEX IF NOT EXISTS idx_query_regions_location ON query_regions (location)"
 # )
 
-TEMP_QUERY_INDEX_SQL = f"""CREATE INDEX IF NOT EXISTS idx_intragenic_query_regions ON intragenic_query_regions (chr, midpoint)"""
+# TEMP_QUERY_INDEX_SQL = f"""CREATE INDEX IF NOT EXISTS idx_intragenic_query_regions ON intragenic_query_regions (chr, midpoint)"""
 
 INSERT_TEMP_QUERY = f"""
     INSERT INTO query_regions (location, chr, start, end, midpoint, strand)
@@ -618,6 +683,8 @@ TEMP_CLOSEST_GENE_TABLE_SQL = f"""
     gene_id TEXT NOT NULL,
     gene_name TEXT NOT NULL,
     transcript_id TEXT NOT NULL,
+    is_intragenic BOOLEAN NOT NULL,
+    is_promoter BOOLEAN NOT NULL,
     gene_rank INTEGER NOT NULL
 );
 """
@@ -656,33 +723,37 @@ TEMP_CLOSEST_GENES_INDEX_SQL = (
     f"""CREATE INDEX IF NOT EXISTS idx_closest_genes ON query_closest_genes (gene_id)"""
 )
 
-
-TEMP_CLOSEST_TRANSCRIPT_TABLE_SQL = f"""
-    CREATE TEMP TABLE IF NOT EXISTS query_closest_transcripts (
-    location TEXT NOT NULL,
-    chr TEXT NOT NULL,
-    start INTEGER NOT NULL,
-    end INTEGER NOT NULL,
-    midpoint INTEGER NOT NULL,
-    strand TEXT NOT NULL,
-    gene_id TEXT NOT NULL,
-    gene_name TEXT NOT NULL,
-    transcript_id TEXT NOT NULL,
-    tss_dist INTEGER NOT NULL,
-    abs_tss_dist INTEGER NOT NULL,
-    is_intragenic INTEGER NOT NULL,
-    is_promoter INTEGER NOT NULL,
-    gene_rank INTEGER NOT NULL,
-    transcript_rank INTEGER NOT NULL
-);
-"""
-
-DELETE_TEMP_CLOSEST_TRANSCRIPT_TABLE_SQL = f"""
-    DELETE FROM query_closest_transcripts
+TEMP_CLOSEST_GENES_DELETE_SQL = f"""
+    DELETE FROM query_closest_genes
 """
 
 
-TEMP_CLOSEST_TRANSCRIPT_INDEX_SQL = f"""CREATE INDEX IF NOT EXISTS idx_closest_transcripts ON query_closest_transcripts (gene_id, transcript_id)"""
+# TEMP_CLOSEST_TRANSCRIPT_TABLE_SQL = f"""
+#     CREATE TEMP TABLE IF NOT EXISTS query_closest_transcripts (
+#     location TEXT NOT NULL,
+#     chr TEXT NOT NULL,
+#     start INTEGER NOT NULL,
+#     end INTEGER NOT NULL,
+#     midpoint INTEGER NOT NULL,
+#     strand TEXT NOT NULL,
+#     gene_id TEXT NOT NULL,
+#     gene_name TEXT NOT NULL,
+#     transcript_id TEXT NOT NULL,
+#     tss_dist INTEGER NOT NULL,
+#     abs_tss_dist INTEGER NOT NULL,
+#     is_intragenic INTEGER NOT NULL,
+#     is_promoter INTEGER NOT NULL,
+#     gene_rank INTEGER NOT NULL,
+#     transcript_rank INTEGER NOT NULL
+# );
+# """
+
+# DELETE_TEMP_CLOSEST_TRANSCRIPT_TABLE_SQL = f"""
+#     DELETE FROM query_closest_transcripts
+# """
+
+
+# TEMP_CLOSEST_TRANSCRIPT_INDEX_SQL = f"""CREATE INDEX IF NOT EXISTS idx_closest_transcripts ON query_closest_transcripts (gene_id, transcript_id)"""
 
 
 def format_col_str(key: str, entrez_sorted_annotations: dict[str]) -> str:
@@ -729,7 +800,7 @@ def add_annotation_for_location_to_cols(
                 "strand": "+",
             }
 
-        print(ann)
+        # print(ann)
 
         # entrez_map[ann["gene_id"]]["gene_id"].add(ann["gene_id"])
 
@@ -963,9 +1034,12 @@ class DataframeAnnotation:
             self._queries,
         )
 
-        self._cursor.execute(DROP_INTRAGENIC_TABLE_SQL)
-        self._cursor.execute(TEMP_INTRAGENIC_TABLE_SQL)
-        self._cursor.execute(TEMP_QUERY_INDEX_SQL)
+        # self._cursor.execute(DROP_INTRAGENIC_TABLE_SQL)
+        # self._cursor.execute(TEMP_INTRAGENIC_TABLE_SQL)
+        # self._cursor.execute(TEMP_QUERY_INDEX_SQL)
+
+        self._cursor.execute(TEMP_CLOSEST_GENE_TABLE_SQL)
+        self._cursor.execute(TEMP_CLOSEST_GENES_INDEX_SQL)
 
         self._df_query = df_query
 
@@ -984,58 +1058,111 @@ class DataframeAnnotation:
 
         print("Processing introns...")
 
-        self._cursor.execute(INTRAGENIC_JOIN_QUERY)
-
-        # for row in cursor:
-        #    row_to_annotation(row, annotation_map)
-
-        rows = [dict(row) for row in self._cursor]
-
-        queries = []
-        for idx, row in enumerate(rows):
-            row["labels"] = []
-            queries.append(
-                {
-                    "row_idx": idx,
-                    "location": row["location"],
-                    "chr": row["chr"],
-                    "midpoint": row["midpoint"],
-                    "transcript_id": row["transcript_id"],
-                }
-            )
-
-        self._cursor.executemany(
-            INSERT_INTRAGENIC_QUERY,
-            queries,
-        )
-
-        print("Processing exons...")
-
-        # find out which intronic regions are exonic
-
-        self._cursor.execute(IS_EXONIC_JOIN_QUERY)
-
-        for c in self._cursor:
-            if "exonic" not in rows[c[0]]["labels"]:
-                rows[c[0]]["labels"].append("exonic")
-
-        for row in rows:
-            # print(row)
-            row_to_annotation(row, annotation_map)
-
-        print("Processing promoters...")
-
         self._cursor.execute(
-            PROMOTER_QUERY,
+            INTRAGENIC_JOIN_QUERY,
             {
                 "promoter_lim_1": self._promoter_lim[0],
                 "promoter_lim_2": self._promoter_lim[1],
             },
         )
 
+        # # for row in cursor:
+        # #    row_to_annotation(row, annotation_map)
+
+        # rows = [dict(row) for row in self._cursor]
+
+        # queries = []
+        # for idx, row in enumerate(rows):
+        #     row["labels"] = []
+        #     queries.append(
+        #         {
+        #             "row_idx": idx,
+        #             "location": row["location"],
+        #             "chr": row["chr"],
+        #             "midpoint": row["midpoint"],
+        #             "transcript_id": row["transcript_id"],
+        #         }
+        #     )
+
+        # self._cursor.executemany(
+        #     INSERT_INTRAGENIC_QUERY,
+        #     queries,
+        # )
+
+        print("Processing exons...")
+
+        # find out which intronic regions are exonic
+
+        # self._cursor.execute(IS_EXONIC_JOIN_QUERY)
+
+        # for c in self._cursor:
+        #     if "exonic" not in rows[c[0]]["labels"]:
+        #         rows[c[0]]["labels"].append("exonic")
+
+        # for row in rows:
+        #     # print(row)
+        #     row_to_annotation(row, annotation_map)
+
+        # print("Processing promoters...")
+
+        # self._cursor.execute(
+        #     PROMOTER_QUERY,
+        #     {
+        #         "promoter_lim_1": self._promoter_lim[0],
+        #         "promoter_lim_2": self._promoter_lim[1],
+        #     },
+        # )
+
+        exon_map = collections.defaultdict(set)
+
+        # self._cursor.execute(
+        #     CLOSEST_IS_INTRAGENIC_QUERY,
+        # )
+
+        # for row in self._cursor:
+        #     id = f"{row['location']}:{row['gene_id']}:{row['transcript_id']}"
+        #     exon_map[id].add("intragenic")
+
+        # self._cursor.execute(
+        #     CLOSEST_IS_PROMOTER_QUERY,
+        #     {
+        #         "promoter_lim_1": self._promoter_lim[0],
+        #         "promoter_lim_2": self._promoter_lim[1],
+        #     },
+        # )
+
+        # for row in self._cursor:
+        #     id = f"{row['location']}:{row['gene_id']}:{row['transcript_id']}"
+        #     exon_map[id].add("promoter")
+
+        self._cursor.execute(
+            CLOSEST_IS_EXON_QUERY,
+        )
+
+        for row in self._cursor:
+            id = f"{row['location']}:{row['gene_id']}:{row['transcript_id']}"
+            exon_map[id].add("exonic")
+
+        self._cursor.execute(SELECT_CLOSEST_GENES_QUERY)
+
         for row in self._cursor:
             r = dict(row)
-            r["labels"] = []
+            id = f"{row['location']}:{row['gene_id']}:{row['transcript_id']}"
+            labels = set(exon_map[id])
+
+            if row["is_promoter"]:
+                labels.add("promoter")
+
+            if row["is_intragenic"]:
+                labels.add("intragenic")
+
+                if "exonic" not in labels:
+                    labels.add("intronic")
+
+            if len(labels) == 0:
+                labels.add("intergenic")
+
+            r["labels"] = list(sorted(labels))
             row_to_annotation(r, annotation_map)
 
         # self._cursor.execute(
@@ -1127,16 +1254,17 @@ class DataframeAnnotation:
         # query_ranges = pr.PyRanges(df_query)
         # nearest = midpoint_ranges.k_nearest(ALL, k=5, suffix="_nearest", nb_cpu=2)
 
+        return self._df_query
+
     def annotate_closest_genes(self, closest_n: int = -1):
         # use default if not specified
         if closest_n == -1:
             closest_n = self._closest_n
 
-        self._cursor.execute(TEMP_CLOSEST_GENE_TABLE_SQL)
-        self._cursor.execute(TEMP_CLOSEST_GENES_INDEX_SQL)
+        self._cursor.execute(TEMP_CLOSEST_GENES_DELETE_SQL)
         # self._cursor.execute(DELETE_TEMP_CLOSEST_GENE_TABLE_SQL)
-        self._cursor.execute(TEMP_CLOSEST_TRANSCRIPT_TABLE_SQL)
-        self._cursor.execute(TEMP_CLOSEST_TRANSCRIPT_INDEX_SQL)
+        # self._cursor.execute(TEMP_CLOSEST_TRANSCRIPT_TABLE_SQL)
+        # self._cursor.execute(TEMP_CLOSEST_TRANSCRIPT_INDEX_SQL)
 
         print(f"Processing {closest_n} closest gene annotations...")
 
@@ -1144,6 +1272,8 @@ class DataframeAnnotation:
             CLOSEST_GENE_GROUP_BY_QUERY,
             {
                 "limit": closest_n,
+                "promoter_lim_1": self._promoter_lim[0],
+                "promoter_lim_2": self._promoter_lim[1],
             },
         )
 
@@ -1205,30 +1335,33 @@ class DataframeAnnotation:
         # see which are exonic
         exon_map = collections.defaultdict(set)
 
-        self._cursor.execute(
-            CLOSEST_IS_INTRAGENIC_QUERY,
-        )
+        # self._cursor.execute(
+        #     CLOSEST_IS_INTRAGENIC_QUERY,
+        # )
 
-        for row in self._cursor:
-            exon_map[f"{row['location']}:{row['gene_id']}"].add("intragenic")
+        # for row in self._cursor:
+        #     id = f"{row['location']}:{row['gene_id']}:{row['transcript_id']}"
+        #     exon_map[id].add("intragenic")
 
-        self._cursor.execute(
-            CLOSEST_IS_PROMOTER_QUERY,
-            {
-                "promoter_lim_1": self._promoter_lim[0],
-                "promoter_lim_2": self._promoter_lim[1],
-            },
-        )
+        # self._cursor.execute(
+        #     CLOSEST_IS_PROMOTER_QUERY,
+        #     {
+        #         "promoter_lim_1": self._promoter_lim[0],
+        #         "promoter_lim_2": self._promoter_lim[1],
+        #     },
+        # )
 
-        for row in self._cursor:
-            exon_map[f"{row['location']}:{row['gene_id']}"].add("promoter")
+        # for row in self._cursor:
+        #     id = f"{row['location']}:{row['gene_id']}:{row['transcript_id']}"
+        #     exon_map[id].add("promoter")
 
         self._cursor.execute(
             CLOSEST_IS_EXON_QUERY,
         )
 
         for row in self._cursor:
-            exon_map[f"{row['location']}:{row['gene_id']}"].add("exonic")
+            id = f"{row['location']}:{row['gene_id']}:{row['transcript_id']}"
+            exon_map[id].add("exonic")
 
         self._cursor.execute(
             # SELECT_CLOSEST_TRANSCRIPTS_QUERY,
@@ -1276,10 +1409,16 @@ class DataframeAnnotation:
 
             # types = set()
 
-            id = f"{row['location']}:{row['gene_id']}"  #:{row['transcript_id']}"
+            id = f"{row['location']}:{row['gene_id']}:{row['transcript_id']}"
+
+            if row["is_promoter"]:
+                exon_map[id].add("promoter")
+
+            if row["is_intragenic"]:
+                exon_map[id].add("intragenic")
 
             if "intragenic" in exon_map[id] and "exonic" not in exon_map[id]:
-                exon_map[id].discard("intragenic")
+                exon_map[id].discard("intronic")
 
             if len(exon_map[id]) == 0:
                 exon_map[id].add("intergenic")
