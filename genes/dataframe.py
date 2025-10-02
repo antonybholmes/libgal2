@@ -287,7 +287,7 @@ g.seqname = q.chr AND
 CLOSEST_GENE_GROUP_BY_QUERY = f"""
 INSERT INTO query_closest_genes (location, 
     chr, 
-    start, 
+    start,
     end, 
     midpoint, 
     strand, 
@@ -355,6 +355,11 @@ SELECT_CLOSEST_GENES_QUERY = f"""SELECT * FROM query_closest_genes"""
 # FROM ranked_transcripts
 # WHERE rn <= :limit;
 # """
+
+QUERY_COUNT_QUERY = f"""
+SELECT COUNT(*) AS count
+FROM query_regions
+"""
 
 CLOSEST_GENE_GROUP_BY_COUNT_QUERY = f"""
 SELECT COUNT(*) AS count
@@ -984,7 +989,7 @@ class DataframeAnnotation:
         self._promoter_lim = promoter_lim
         self._conn = None
         self._cursor = None
-        self._queries = []
+        # self._queries = []
         self._df_query = None
         self._prom_header = f"Relative To Gene (prom=-{promoter_lim[0]/1000}/+{promoter_lim[1]/1000} kb)"
         self._db = None
@@ -1014,11 +1019,16 @@ class DataframeAnnotation:
         self._cursor.execute(TEMP_INDEX_QUERY_TABLE_MID_SQL)
         self._cursor.execute(TEMP_INDEX_QUERY_TABLE_LOCATION_SQL)
 
-        self._queries = []
+        queries = []
+        used = set()
         for _, row in df_query.iterrows():
             location = f"{row['Chromosome']}:{row['Start']}-{row['End']}"
+            if location in used:
+                continue
+
+            used.add(location)
             midpoint = int((row["Start"] + row["End"]) / 2)
-            self._queries.append(
+            queries.append(
                 {
                     "location": location,
                     "chr": row["Chromosome"],
@@ -1029,9 +1039,11 @@ class DataframeAnnotation:
                 }
             )
 
+        print(f"Inserting {len(queries)} query regions")
+
         self._cursor.executemany(
             INSERT_TEMP_QUERY,
-            self._queries,
+            queries,
         )
 
         # self._cursor.execute(DROP_INTRAGENIC_TABLE_SQL)
@@ -1217,6 +1229,7 @@ class DataframeAnnotation:
         annotation_cols = [[] for _ in range(6)]
 
         for _, row in self._df_query.iterrows():
+            # this row index value
             key = row.name  # (row["Chromosome"], row["Start"], row["End"])
             # convert frozensets back to dict
             annotations = [
@@ -1267,6 +1280,13 @@ class DataframeAnnotation:
         # self._cursor.execute(TEMP_CLOSEST_TRANSCRIPT_INDEX_SQL)
 
         print(f"Processing {closest_n} closest gene annotations...")
+
+        self._cursor.execute(
+            QUERY_COUNT_QUERY,
+        )
+
+        count = self._cursor.fetchone()["count"]
+        print(f"Found {count} queries")
 
         self._cursor.execute(
             CLOSEST_GENE_GROUP_BY_QUERY,
@@ -1387,6 +1407,13 @@ class DataframeAnnotation:
             (self._df_query.shape[0], 1 + closest_n * 6), "n/a", dtype=object
         )
 
+        data[:, 0] = self._df_query.index.values
+
+        location_idx_map = collections.defaultdict(set)
+
+        for i, loc in enumerate(self._df_query.index):
+            location_idx_map[loc].add(i)
+
         # for idx, row in enumerate(self._cursor):
         #    pass
 
@@ -1409,7 +1436,10 @@ class DataframeAnnotation:
 
             # types = set()
 
-            id = f"{row['location']}:{row['gene_id']}:{row['transcript_id']}"
+            location = row["location"]
+            location_row_indexes = location_idx_map.get(location, set())
+
+            id = f"{location}:{row['gene_id']}:{row['transcript_id']}"
 
             if row["is_promoter"]:
                 exon_map[id].add("promoter")
@@ -1426,14 +1456,15 @@ class DataframeAnnotation:
             closest_rank = row["gene_rank"] - 1  # idx % closest_n
             closest_block = closest_rank * 6 + 1
 
-            data[row_idx, 0] = row["location"]
+            # data[row_idx, 0] = row["location"]
 
-            data[row_idx, closest_block] = row["transcript_id"]
-            data[row_idx, closest_block + 1] = row["gene_id"]
-            data[row_idx, closest_block + 2] = row["gene_name"]
-            data[row_idx, closest_block + 3] = row["strand"]
-            data[row_idx, closest_block + 4] = row["tss_dist"]
-            data[row_idx, closest_block + 5] = ",".join(exon_map[id])
+            for location_row_idx in location_row_indexes:
+                data[location_row_idx, closest_block] = row["transcript_id"]
+                data[location_row_idx, closest_block + 1] = row["gene_id"]
+                data[location_row_idx, closest_block + 2] = row["gene_name"]
+                data[location_row_idx, closest_block + 3] = row["strand"]
+                data[location_row_idx, closest_block + 4] = row["tss_dist"]
+                data[location_row_idx, closest_block + 5] = ",".join(exon_map[id])
 
             if idx % 1000 == 0:
                 print(f"Processed {idx} closest annotations...")
@@ -1499,7 +1530,7 @@ class DataframeAnnotation:
         #     )
         # )
 
-        print(data.shape)
+        print(data.shape, row_idx)
 
         headers = ["Location"]
 
@@ -1541,7 +1572,7 @@ class DataframeAnnotation:
         # for row in self._cursor:
         #     closest_genes.append(dict(row))
 
-        print(len(self._queries), len(closest_genes))
+        # print(len(self._queries), len(closest_genes))
 
         # queries_closest_genes = []
 
