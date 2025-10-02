@@ -87,9 +87,9 @@ SELECT q.location,
     g.transcript_id,
     q.midpoint >= g.start AND q.midpoint <= g.end AS is_intragenic,
     (
-        (g.strand = '+' AND (g.tss - :promoter_lim_1) <= q.midpoint AND (g.tss + :promoter_lim_2) >= q.midpoint) 
+        (g.strand = '+' AND q.midpoint >= (g.tss - :promoter_lim_1) AND q.midpoint <= (g.tss + :promoter_lim_2))
         OR
-        (g.strand = '-' AND (g.tss - :promoter_lim_2) <= q.midpoint AND (g.tss + :promoter_lim_1) >= q.midpoint)
+        (g.strand = '-' AND q.midpoint >= (g.tss - :promoter_lim_2) AND q.midpoint <= (g.tss + :promoter_lim_1))
     ) as is_promoter,
     1 AS gene_rank
 FROM query_regions q
@@ -115,26 +115,26 @@ g.seqname = q.chr AND
 #     :midpoint >= exon.start AND :midpoint <= exon.end
 #     """
 
-EXON_JOIN_QUERY = f"""
-SELECT DISTINCT
-    q.location,
-    q.chr,
-    q.midpoint,
-    g.gene_id, 
-    g.gene_name,
-    g.transcript_id,
-    g.tss,
-    g.strand,
-    'exonic' AS type,
-    q.midpoint - g.tss AS tss_dist
-FROM query_regions q
-JOIN gtf g ON 
-    g.feature = 'exon' AND 
-    g.seqname = q.chr AND 
-    g.start <= q.midpoint AND 
-    g.end >= q.midpoint
-ORDER BY q.location
-"""
+# EXON_JOIN_QUERY = f"""
+# SELECT DISTINCT
+#     q.location,
+#     q.chr,
+#     q.midpoint,
+#     g.gene_id,
+#     g.gene_name,
+#     g.transcript_id,
+#     g.tss,
+#     g.strand,
+#     'exonic' AS type,
+#     q.midpoint - g.tss AS tss_dist
+# FROM query_regions q
+# JOIN gtf g ON
+#     g.feature = 'exon' AND
+#     g.seqname = q.chr AND
+#     g.start <= q.midpoint AND
+#     g.end >= q.midpoint
+# ORDER BY q.location
+# """
 
 # IS_INTRAGENIC_JOIN_QUERY = f"""
 # SELECT DISTINCT q.row_idx
@@ -328,9 +328,9 @@ FROM (
         g.transcript_id,
         (q.midpoint <= g.end AND q.midpoint >= g.start) AS is_intragenic,
         (
-            (g.strand = '+' AND (g.tss - :promoter_lim_1) <= q.midpoint AND (g.tss + :promoter_lim_2) >= q.midpoint) 
+            (g.strand = '+' AND q.midpoint >= (g.tss - :promoter_lim_1) AND q.midpoint <= (g.tss + :promoter_lim_2))
             OR
-            (g.strand = '-' AND (g.tss - :promoter_lim_2) <= q.midpoint AND (g.tss + :promoter_lim_1) >= q.midpoint)
+            (g.strand = '-' AND q.midpoint >= (g.tss - :promoter_lim_2) AND q.midpoint <= (g.tss + :promoter_lim_1))
         ) AS is_promoter,
         ROW_NUMBER() OVER (PARTITION BY q.location ORDER BY ABS(q.midpoint - g.tss)) AS gene_rank
     FROM query_regions q
