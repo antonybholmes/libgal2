@@ -13,20 +13,20 @@ this program. If not, see <https://www.gnu.org/licenses/>.
 Copyright (C) 2022 Antony Holmes.
 """
 
-from abc import ABC, abstractmethod
 import collections
+import re
+import sys
+from abc import ABC, abstractmethod
 from enum import Enum
 from functools import total_ordering
 from importlib.metadata import metadata
-import re
-import sys
 from typing import Any, Iterable, Mapping, Union
-
 
 from .. import species
 
 TELOMERE_SIZE = 100000
-NA = "n/a"
+NA = "NA"
+NA_DOT = "."
 
 
 def one_base_loc(start: int, end: int) -> tuple[int, int]:
